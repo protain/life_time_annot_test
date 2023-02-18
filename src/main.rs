@@ -211,7 +211,7 @@ fn main_5() {
 pub mod sub1;
 
 fn main_6() {
-    let mut pt = sub1::PicoTts::new();
+    let mut pt: sub1::PicoTts<u8> = sub1::PicoTts::new();
     let pt = pt.init();
     println!("main_6: pt(1) => {:?}", pt);
 
@@ -220,20 +220,101 @@ fn main_6() {
     let pt = pt.update_sys(v.as_slice());
     println!("main_6: pt(2) => {:?}", pt);
 
-    let mut pt = sub1::PicoTts::from_path(
+    let mut pt = sub1::PicoTts::<u8>::from_path(
         std::ffi::OsStr::new("Cargo.toml")).unwrap();
     let pt = pt.init();
     println!("main_6: pt(3) => {:?}", pt);
 
     let mut pt = unsafe {
-        sub1::PicoTts::new_unsafe()
+        sub1::PicoTts::<u8>::new_unsafe()
     };
     let v = vec![1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
     let pt = pt.update_sys(v.as_slice());
     println!("main_6: pt(4) => {:?}", pt);
-    let pt_sub = pt.get_sub();
+    let pt_sub = pt.get_sub(0);
     println!("main_6: pt_sub(4) => {:?}", pt_sub);
+
+    let pt = sub1::PicoTts::new_with_data(&[1, 2, 3, 4, 5]);
+    println!("main_6: pt(5) => {:?}", pt);
+    let pt_sub = pt.get_sub(3);
+    println!("main_6: pt_sub(5) => {:?}", pt_sub);
+
+    let mut pt = sub1::PicoTts::new_with_data(&[1, 2, 3, 4, 5]);
+
+    {
+        let v: Vec<&[i32]> = vec![&[11, 12], &[22, 33], &[33, 44, 55]];
+        pt.update_sub(v);
+        println!("main_6: pt(6) => {:?}", pt);
+    }
+
+    println!("main_6: pt(6) => {:?}", pt);
+    let pt_sub = pt.get_sub(3);
+    println!("main_6: pt_sub(6) => {:?}", pt_sub);
+
+
+
 }
+
+// ---------------------------------------------------------------------------------
+// 仮想的なPDFのデータ構造
+
+#[derive(Debug)]
+struct XRefTableEntry<'doc> {
+    entry_type: i32,
+    entry_data: &'doc [u8],
+}
+
+impl<'doc> XRefTableEntry<'doc> {
+    fn new(entry_type: i32, data: &'doc [u8]) -> Self {
+        XRefTableEntry { entry_type: 0, entry_data: data }
+    }
+}
+
+#[derive(Debug)]
+struct XRefTable<'doc> {
+    doc: &'doc Doc<'doc>,
+    table_data: Vec<XRefTableEntry<'doc>>
+}
+
+impl <'doc> XRefTable<'doc> {
+    fn new(doc: &'doc Doc) -> Self {
+        let mut xtbl = XRefTable {
+            doc,
+            table_data: Vec::new(),
+        };
+        xtbl.table_data.push(XRefTableEntry::new(1, doc.dat));
+        xtbl
+    }
+}
+
+#[derive(Debug)]
+struct Doc<'a> {
+    dat: &'a [u8],
+    table: Option<XRefTable<'a>>,
+}
+
+impl <'a> Doc<'a> {
+    fn new(dat: &'a [u8]) -> Self {
+        let mut d = Doc {
+            dat,
+            table: None
+        };
+        let tbl = Some(XRefTable::new(unsafe {
+            &*(&d as *const _)
+        }));
+        d.table = tbl;
+        d
+    }
+}
+
+fn main_7() {
+    let v = vec![1, 2, 3, 4, 5, 6, 7, 8];
+    let d = Doc::new(v.as_slice());
+
+    // docが再帰的にプリントされる事により以下は落ちる。
+    //println!("main_7: {:?}", d);
+}
+
 
 fn main() {
     main_1();
@@ -242,4 +323,5 @@ fn main() {
     main_4();
     main_5();
     main_6();
+    main_7();
 }
