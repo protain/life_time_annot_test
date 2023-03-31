@@ -1,5 +1,5 @@
 use std::{
-    rc::Rc, cell::RefCell,
+    rc::Rc, cell::RefCell, str::FromStr,
 };
 use with_locals::with;
 
@@ -315,7 +315,191 @@ fn main_7() {
     //println!("main_7: {:?}", d);
 }
 
+// -------------------------------------------------------------------------------------------
+// Typeパラメータ付き関数のテスト
 
+struct Integer(i32);
+
+impl AsRef<i32> for Integer {
+    fn as_ref(&self) -> &i32 {
+        &self.0
+    }
+}
+
+fn fn_01<T>(cnt: T)
+    where T: AsRef<i32>     // Tはtraitじゃないとだめ
+{
+    println!("cnt: => {}", cnt.as_ref());
+}
+
+fn fn_01_2(cnt: &dyn AsRef<i32>) {
+    println!("cnt2: => {}", cnt.as_ref());
+}
+
+fn fn_01_3<T>(cnt: &T)
+    where T: AsRef<i32>     // Tはtraitじゃないとだめ
+{
+    println!("cnt3: => {}", cnt.as_ref());
+}
+
+trait IBase {
+    fn get_age(&self) -> i32;
+    fn get_name(&self) -> &str;
+    fn print(&self);
+}
+
+struct XYZ {
+    age: i32,
+    name: String,
+    role: i32,
+}
+
+impl FromStr for XYZ {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let v: Vec<&str> = s.split(' ').collect();
+
+        // let else 秀逸かも
+        let Some(age) = v.get(0) else { return Err("unexpected age".to_owned()) };
+        let age = age.parse::<i32>().map_err(|v| format!("{:?}", v))?;
+        let Some(name) = v.get(1) else { return Err("unexpected name".to_owned()) };
+        let name = format!("{}", name);
+        let Some(role) = v.get(2) else { return Err("unexpected role".to_owned()) };
+        let role = role.parse::<i32>().map_err(|v| format!("{:?}", v))?;
+
+        Ok(XYZ {
+            age,
+            name,
+            role
+        })
+    }
+}
+
+impl IBase for XYZ {
+    fn get_age(&self) -> i32 {
+        self.age
+    }
+
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    fn print(&self) {
+        println!("print from XYZ: {}", self.name);
+    }
+}
+
+struct YSD<'a> {
+    age: i32,
+    display: String,
+    speed: f32,
+    hoge: &'a str,
+}
+
+impl YSD<'_> {
+    fn new<'a, 'b>(age: i32, disp: String, speed: f32, hoge: &'a str) -> YSD<'b>
+        where 'a: 'b    // 'bより'aの方が同じかより長生きするあのちゃん -> brrowチェッカーによってこの制約は担保され得る
+    {
+        YSD {
+            age,
+            display: disp,
+            speed,
+            hoge,
+        }
+    }
+
+    fn print(&self) {
+        print!("{{age: {}, display: {}, seppd: {}, hoge: {}}}",
+            self.age, self.display, self.speed, self.hoge);
+    }
+}
+
+impl IBase for YSD<'_> {
+    fn get_age(&self) -> i32 {
+        self.age
+    }
+
+    fn get_name(&self) -> &str {
+        &self.display
+    }
+
+    fn print(&self) {
+        self.print();
+    }
+}
+
+fn fn_02<T>(disp: &[Box<T>])
+    where T: IBase + ?Sized //+ 'static (<-'staticをつけると怒られる事が分かる/trait境界外や) // traitをよく扱う場合は、この記法の方が望ましいかも
+{
+    disp.into_iter().for_each(|v| {
+        v.print();
+        //println!("age: {}, name: {}", v.get_age(), v.get_name());
+    });
+}
+
+// fn fn_03(v: &[Option<Box<dyn IBase>>])
+fn fn_03<T>(v: &[Option<Box<T>>])   // この記法もできる: 違いはなんだろう？ -> where句にdynキーワードはつけられない
+    where T: IBase + ?Sized         // dynなtraitの場合、?Sizedを付与しないとコンパイル時に怒られる。
+{
+    v.into_iter().for_each(|v| {
+        if let Some(v) = v {
+            v.print();
+        } else {
+            println!("none");
+        }
+    })
+}
+
+fn main_8() {
+    // 以下は、fnの記法によって前者は静的ディスパッチ、後者は動的ディスパッチとなる
+    fn_01(Integer(45));
+    let int = Integer(32);
+    fn_01_2(&int);
+    // このfnの記法では借用でtraitを渡すが、dynすると怒られる。
+    fn_01_3(&int);
+
+    // 同じtraitを実装する奴らを同じく扱うためには参照もしくはBoxに突っ込むかのどっちかだ
+    // →でも、予め具象型がわかっている場合は、traitではなくてenumにするな。動的ディスパッチにする必要ないもん。
+    // 中身の所有権をVecに任せるならば、Boxに入れておく必要がある。
+    let mut disp: Vec<Box<dyn IBase>> = vec![];
+    disp.push(Box::new(YSD::new(12, "YSD_01".to_owned(), 12.0, "hoge01")));
+    disp.push(Box::new(YSD::new(15, "YSD_02".to_owned(), 2.0, "hoge02")));
+    disp.push(Box::new(XYZ { age: 93, name: "XYZ_01".to_owned(), role: 1032 }));
+    fn_02(disp.as_slice());
+
+    // Boxで包むことで、ポリモーフィズムなオブジェクトの配列は実現できる。
+    let strstr = format!("XYZじゃなく123");
+    let disp: [Box<dyn IBase>; 4] = [
+        Box::new(YSD::new(112, "2:YSD_01".to_owned(), 12.0, &strstr)),
+        Box::new(XYZ::from_str("33 HOGEHOE-XYZ-02 1021").unwrap()),
+        Box::new(YSD::new(115, "2:YSD_02".to_owned(), 2.0, "123")),
+        Box::new(XYZ { age: 31, name: "2:XYZ_01".to_owned(), role: 1032 }),
+    ];
+    fn_02(&disp);
+
+    let mut disp: Vec<Option<Box<dyn IBase>>> = vec![];
+    disp.push(Some(Box::new(YSD::new(12, "YSD_01".to_owned(), 12.0, "hoge01"))));
+    let v: Option<Box<dyn IBase>> = if let Ok(v) = XYZ::from_str("33 HOGEHOE-XYZ-02 1021") {
+        Some(Box::new(v))
+    } else {
+        None
+    };
+    disp.push(v);
+    let v: Option<Box<dyn IBase>> = if let Ok(v) = XYZ::from_str("3.3 HOGEHOE-XYZ-03 748") {
+        Some(Box::new(v))
+    } else {
+        None
+    };
+    disp.push(v);
+    fn_03(disp.as_slice())
+
+}
+
+// -------------------------------------------------------------------------------------------
+
+
+// -------------------------------------------------------------------------------------------
 fn main() {
     main_1();
     main_2();
@@ -324,4 +508,5 @@ fn main() {
     main_5();
     main_6();
     main_7();
+    main_8();
 }
