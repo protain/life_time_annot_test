@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 with_locals = "0.3.0"
 thiserror = "1"
+anyhow = "1"
